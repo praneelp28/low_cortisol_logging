@@ -118,25 +118,9 @@ async function init() {
     syncBtn.disabled = false;
   }
 
-  // Mode toggle: replace (default) vs open new
-  var mode = 'replace';
-  var modeReplace = document.getElementById('mode-replace');
-  var modeNew = document.getElementById('mode-new');
-
-  modeReplace.addEventListener('click', function () {
-    mode = 'replace';
-    modeReplace.classList.add('active');
-    modeNew.classList.remove('active');
-  });
-
-  modeNew.addEventListener('click', function () {
-    mode = 'new';
-    modeNew.classList.add('active');
-    modeReplace.classList.remove('active');
-  });
-
   // Sync handler
   syncBtn.addEventListener('click', async function () {
+    var mode = document.getElementById('mode-new').classList.contains('active') ? 'new' : 'replace';
     syncBtn.disabled = true;
     syncBtn.textContent = 'syncing...';
     statusEl.textContent = '';
@@ -187,5 +171,21 @@ async function init() {
     }
   });
 }
+
+// Toggle wiring — runs immediately, no chrome APIs needed
+(function () {
+  var modeReplace = document.getElementById('mode-replace');
+  var modeNew = document.getElementById('mode-new');
+
+  modeReplace.addEventListener('click', function () {
+    modeReplace.classList.add('active');
+    modeNew.classList.remove('active');
+  });
+
+  modeNew.addEventListener('click', function () {
+    modeNew.classList.add('active');
+    modeReplace.classList.remove('active');
+  });
+})();
 
 init();
