@@ -1,7 +1,13 @@
 "use strict";
 
-// lib.js — Pure logic for detecting, parsing, converting, and writing
-// observability tool time ranges. No browser/chrome APIs here.
+// lib.js — All the URL parsing and rewriting logic.
+// Pure functions only — no browser APIs, no chrome.*, no DOM.
+// This makes it testable in Node (see context/test.js, 67 tests).
+//
+// The core idea: each tool stores time differently in its URL.
+//   Grafana:  ?from=now-1h&to=now              (query string, epoch ms or relative)
+//   Kibana:   #/?_g=(time:(from:now-1h,to:now)) (RISON in hash fragment)
+//   Thanos:   ?g0.range_input=1h                (duration-based, per-panel)
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -9,6 +15,9 @@ var DURATION_UNITS = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
 var MAX_THANOS_PANELS = 20;
 
 // ── Detection ────────────────────────────────────────────────────────────────
+// Figure out which tool a URL belongs to. Returns 'grafana', 'kibana',
+// 'thanos', or null. Kibana /goto/ short links are skipped (opaque redirects,
+// can't parse time from them).
 
 function detectTool(url) {
   if (!url) return null;
@@ -39,6 +48,8 @@ function isRelative(val) {
   return typeof val === 'string' && val.startsWith('now');
 }
 
+// Grafana supports rounding syntax like "now-1h/h" (round to hour).
+// Kibana and Thanos don't, so we strip it when converting.
 function stripRounding(val) {
   if (typeof val !== 'string') return val;
   return val.replace(/\/[smhd]$/, '');
@@ -103,6 +114,8 @@ function resolveToAbsolute(time) {
 }
 
 // ── Parsing ─────────────────────────────────────────────────────────────────
+// Each parser reads a URL string and returns { from, to } or null.
+// Values are kept as-is (strings) — no conversion happens here.
 
 function parseGrafana(url) {
   var u = safeURL(url);
@@ -181,6 +194,8 @@ function parseTime(tool, url) {
 }
 
 // ── Writing ─────────────────────────────────────────────────────────────────
+// Each writer takes a URL + { from, to } and returns a new URL string
+// with the time swapped in. Original URL is returned on any error.
 
 function writeGrafana(url, time) {
   var u = safeURL(url);

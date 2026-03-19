@@ -1,7 +1,9 @@
 "use strict";
 
-// popup.js — UI and chrome.tabs logic only. Pure logic lives in lib.js.
+// popup.js — The popup UI. Talks to chrome.tabs to detect and sync.
+// All URL logic lives in lib.js — this file just wires up the DOM.
 
+// HTML-escape a string to prevent XSS (tab titles are attacker-controlled).
 function esc(s) {
   var d = document.createElement('div');
   d.textContent = s;
