@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div id="app">
+    <pre class="ascii-art">
+  ~  low cortisol  ~
+    _ _                _
+   | | | ___   __ _  _| |_
+   | | |/ _ \ / _` |/ _` (_)
+   | | | (_) | (_| | (_| |_
+   |_|_|\___/ \__, |\__,_(_)
+              |___/ sync</pre>
+
+    <div id="source-section">
+      <div class="label">source tab</div>
+      <div id="source-info" class="card">
+        <span class="detecting">scanning...</span>
+      </div>
+    </div>
+
+    <div id="targets-section">
+      <div class="label">sync to</div>
+      <div id="targets-list"></div>
+      <div id="no-targets" class="muted" style="display:none">no other obs tabs open</div>
+    </div>
+
+    <button id="sync-btn" disabled>sync time</button>
+    <div id="status" class="muted"></div>
+  </div>
+
+  <script src="lib.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

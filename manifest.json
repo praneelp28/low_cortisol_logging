@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Low Cortisol Logging",
+  "version": "0.1.0",
+  "description": "Sync time ranges across Grafana, Kibana, and Thanos tabs",
+  "permissions": ["tabs", "activeTab"],
+  "host_permissions": [
+    "*://*.cfdata.org/*",
+    "*://*.cloudflare.com/*",
+    "*://*.cfplat.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Sync observability time"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {}
+}
