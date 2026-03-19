@@ -1,5 +1,12 @@
+"use strict";
+
 // lib.js — Pure logic for detecting, parsing, converting, and writing
 // observability tool time ranges. No browser/chrome APIs here.
+
+// ── Constants ────────────────────────────────────────────────────────────────
+
+var DURATION_UNITS = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
+var MAX_THANOS_PANELS = 20;
 
 // ── Detection ────────────────────────────────────────────────────────────────
 
@@ -14,10 +21,11 @@ function detectTool(url) {
       url.includes('metrics.cfdata.org') ||
       url.includes('thanos.cfdata.org') ||
       url.includes('prometheus-access.cfdata.org') ||
-      url.includes('prometheus.access.')
+      url.includes('prometheus-access.cfdata.org') ||
+      url.includes('.k8s.cfplat.com')
     )
       return 'thanos';
-  } catch (e) { /* defensive */ }
+  } catch (e) { console.debug('detectTool:', e); }
   return null;
 }
 
@@ -40,12 +48,10 @@ function safeURL(url) {
   try { return new URL(url); } catch (e) { return null; }
 }
 
-const DURATION_UNITS = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
-
 function durationToMs(dur) {
-  const match = dur.match(/^(\d+)([smhd])$/);
+  var match = dur.match(/^(\d+)([smhd])$/);
   if (!match) return null;
-  return parseInt(match[1]) * DURATION_UNITS[match[2]];
+  return parseInt(match[1], 10) * DURATION_UNITS[match[2]];
 }
 
 function msToDuration(ms) {
@@ -57,34 +63,37 @@ function msToDuration(ms) {
 }
 
 function relativeToMs(val) {
-  const cleaned = stripRounding(val);
+  var cleaned = stripRounding(val);
   if (cleaned === 'now') return 0;
-  const match = cleaned.match(/^now-(\d+)([smhd])$/);
+  var match = cleaned.match(/^now-(\d+)([smhd])$/);
   if (!match) return null;
-  return parseInt(match[1]) * DURATION_UNITS[match[2]];
+  return parseInt(match[1], 10) * DURATION_UNITS[match[2]];
 }
 
+// Heuristic: >1e12 = epoch ms, >1e9 = epoch seconds, else ISO string.
+// Valid for dates between ~2001 and ~2286.
 function toEpochMs(val) {
-  const n = Number(val);
+  var n = Number(val);
   if (!isNaN(n) && n > 1e12) return n;
   if (!isNaN(n) && n > 1e9) return n * 1000;
   return Date.parse(val);
 }
 
 function resolveToAbsolute(time) {
-  const now = Date.now();
-  let fromMs, toMs;
+  var now = Date.now();
+  var fromMs, toMs;
 
   if (isRelative(time.to)) {
-    toMs = now;
+    var toOffset = relativeToMs(time.to);
+    toMs = toOffset !== null ? now - toOffset : now;
   } else {
     toMs = toEpochMs(time.to);
   }
 
   if (isRelative(time.from)) {
-    const offset = relativeToMs(time.from);
-    if (offset === null) return null;
-    fromMs = now - offset;
+    var fromOffset = relativeToMs(time.from);
+    if (fromOffset === null) return null;
+    fromMs = now - fromOffset;
   } else {
     fromMs = toEpochMs(time.from);
   }
@@ -96,66 +105,63 @@ function resolveToAbsolute(time) {
 // ── Parsing ─────────────────────────────────────────────────────────────────
 
 function parseGrafana(url) {
-  const u = safeURL(url);
+  var u = safeURL(url);
   if (!u) return null;
 
   if (u.pathname.includes('/explore')) {
-    const left = u.searchParams.get('left');
+    var left = u.searchParams.get('left');
     if (!left) return null;
     try {
-      const arr = JSON.parse(decodeURIComponent(left));
+      var arr = JSON.parse(decodeURIComponent(left));
       if (arr && arr[0] && arr[1]) {
         return { from: String(arr[0]), to: String(arr[1]) };
       }
-    } catch (e) { /* fall through */ }
+    } catch (e) { console.debug('parseGrafana explore:', e); }
     return null;
   }
 
-  const from = u.searchParams.get('from');
-  const to = u.searchParams.get('to');
+  var from = u.searchParams.get('from');
+  var to = u.searchParams.get('to');
   if (!from || !to) return null;
-  return { from, to };
+  return { from: from, to: to };
 }
 
 function parseKibana(url) {
-  const u = safeURL(url);
+  var u = safeURL(url);
   if (!u) return null;
-  const hash = u.hash;
+  var hash = u.hash;
   if (!hash) return null;
 
-  let decoded;
+  var decoded;
   try { decoded = decodeURIComponent(hash); } catch (e) { decoded = hash; }
 
-  // Extract the time:(...) block first
-  const timeBlock = decoded.match(/time:\(([^)]*)\)/);
+  var timeBlock = decoded.match(/time:\(([^)]*)\)/);
   if (!timeBlock) return null;
-  const inner = timeBlock[1];
+  var inner = timeBlock[1];
 
-  // Extract from and to independently — handles extra fields like mode:absolute
-  // Try quoted first (absolute ISO), then unquoted (relative like now-1h)
-  const fromQuoted = inner.match(/from:'([^']*)'/);
-  const fromUnquoted = inner.match(/from:([^,)]+)/);
-  const toQuoted = inner.match(/to:'([^']*)'/);
-  const toUnquoted = inner.match(/to:([^,)]+)/);
+  var fromQuoted = inner.match(/from:'([^']*)'/);
+  var fromUnquoted = inner.match(/from:([^,)]+)/);
+  var toQuoted = inner.match(/to:'([^']*)'/);
+  var toUnquoted = inner.match(/to:([^,)]+)/);
 
-  const from = fromQuoted ? fromQuoted[1] : fromUnquoted ? fromUnquoted[1] : null;
-  const to = toQuoted ? toQuoted[1] : toUnquoted ? toUnquoted[1] : null;
+  var from = fromQuoted ? fromQuoted[1] : fromUnquoted ? fromUnquoted[1] : null;
+  var to = toQuoted ? toQuoted[1] : toUnquoted ? toUnquoted[1] : null;
 
   if (!from || !to) return null;
-  return { from, to };
+  return { from: from, to: to };
 }
 
 function parseThanos(url) {
-  const u = safeURL(url);
+  var u = safeURL(url);
   if (!u) return null;
-  const range = u.searchParams.get('g0.range_input');
+  var range = u.searchParams.get('g0.range_input');
   if (!range) return null;
-  const endInput = u.searchParams.get('g0.end_input');
+  var endInput = u.searchParams.get('g0.end_input');
 
   if (endInput) {
-    const endMs = Date.parse(endInput);
+    var endMs = Date.parse(endInput);
     if (isNaN(endMs)) return null;
-    const durMs = durationToMs(range);
+    var durMs = durationToMs(range);
     if (!durMs) return null;
     return { from: String(endMs - durMs), to: String(endMs) };
   }
@@ -169,7 +175,7 @@ function parseTime(tool, url) {
     if (tool === 'kibana') return parseKibana(url);
     if (tool === 'thanos') return parseThanos(url);
   } catch (e) {
-    console.warn('parseTime failed for', tool, e);
+    console.debug('parseTime failed:', tool, e);
   }
   return null;
 }
@@ -177,7 +183,7 @@ function parseTime(tool, url) {
 // ── Writing ─────────────────────────────────────────────────────────────────
 
 function writeGrafana(url, time) {
-  const u = safeURL(url);
+  var u = safeURL(url);
   if (!u) return url;
 
   if (u.pathname.includes('/explore')) {
@@ -188,7 +194,7 @@ function writeGrafana(url, time) {
     u.searchParams.set('from', time.from);
     u.searchParams.set('to', time.to);
   } else {
-    const abs = resolveToAbsolute(time);
+    var abs = resolveToAbsolute(time);
     if (!abs) return url;
     u.searchParams.set('from', String(abs.from));
     u.searchParams.set('to', String(abs.to));
@@ -197,57 +203,55 @@ function writeGrafana(url, time) {
 }
 
 function writeGrafanaExplore(u, time) {
-  const left = u.searchParams.get('left');
+  var left = u.searchParams.get('left');
   if (!left) return u.toString();
   try {
-    const arr = JSON.parse(decodeURIComponent(left));
+    var arr = JSON.parse(decodeURIComponent(left));
     if (isRelative(time.from)) {
       arr[0] = time.from;
       arr[1] = time.to;
     } else {
-      const abs = resolveToAbsolute(time);
+      var abs = resolveToAbsolute(time);
       if (!abs) return u.toString();
       arr[0] = String(abs.from);
       arr[1] = String(abs.to);
     }
     u.searchParams.set('left', JSON.stringify(arr));
-  } catch (e) { /* bail */ }
+  } catch (e) { console.debug('writeGrafanaExplore:', e); }
   return u.toString();
 }
 
 function writeKibana(url, time) {
-  const u = safeURL(url);
+  var u = safeURL(url);
   if (!u) return url;
-  let hash = u.hash;
+  var hash = u.hash;
   if (!hash) return url;
 
-  let decoded;
+  var decoded;
   try { decoded = decodeURIComponent(hash); } catch (e) { decoded = hash; }
 
-  let fromStr, toStr;
+  var fromStr, toStr;
   if (isRelative(time.from)) {
     fromStr = stripRounding(time.from);
     toStr = stripRounding(time.to);
   } else {
-    const abs = resolveToAbsolute(time);
+    var abs = resolveToAbsolute(time);
     if (!abs) return url;
     fromStr = "'" + new Date(abs.from).toISOString() + "'";
     toStr = "'" + new Date(abs.to).toISOString() + "'";
   }
 
-  // Replace the entire time:(...) block — this handles extra fields like mode:absolute
-  const timeRegex = /time:\([^)]*\)/;
+  var timeRegex = /time:\([^)]*\)/;
   if (timeRegex.test(decoded)) {
-    decoded = decoded.replace(timeRegex, `time:(from:${fromStr},to:${toStr})`);
+    decoded = decoded.replace(timeRegex, 'time:(from:' + fromStr + ',to:' + toStr + ')');
   } else {
-    const gRegex = /_g=\(([^)]*)\)/;
-    const gMatch = decoded.match(gRegex);
+    var gRegex = /_g=\(([^)]*)\)/;
+    var gMatch = decoded.match(gRegex);
     if (gMatch) {
-      const inner = gMatch[1];
-      const newInner = inner
-        ? `time:(from:${fromStr},to:${toStr}),${inner}`
-        : `time:(from:${fromStr},to:${toStr})`;
-      decoded = decoded.replace(gRegex, `_g=(${newInner})`);
+      var inner = gMatch[1];
+      var timeStr = 'time:(from:' + fromStr + ',to:' + toStr + ')';
+      var newInner = inner ? timeStr + ',' + inner : timeStr;
+      decoded = decoded.replace(gRegex, '_g=(' + newInner + ')');
     }
   }
 
@@ -256,32 +260,32 @@ function writeKibana(url, time) {
 }
 
 function writeThanos(url, time) {
-  const u = safeURL(url);
+  var u = safeURL(url);
   if (!u) return url;
 
-  const hasPanels = u.searchParams.has('g0.expr') || u.searchParams.has('g0.range_input');
+  var hasPanels = u.searchParams.has('g0.expr') || u.searchParams.has('g0.range_input');
   if (!hasPanels) return url;
 
   if (isRelative(time.from)) {
-    const offset = relativeToMs(time.from);
-    const dur = offset !== null ? msToDuration(offset) : '1h';
+    var offset = relativeToMs(time.from);
+    var dur = offset !== null ? msToDuration(offset) : '1h';
 
-    for (let i = 0; i < 20; i++) {
-      if (!u.searchParams.has(`g${i}.expr`) && !u.searchParams.has(`g${i}.range_input`)) break;
-      u.searchParams.set(`g${i}.range_input`, dur);
-      u.searchParams.delete(`g${i}.end_input`);
-      u.searchParams.delete(`g${i}.moment_input`);
+    for (var i = 0; i < MAX_THANOS_PANELS; i++) {
+      if (!u.searchParams.has('g' + i + '.expr') && !u.searchParams.has('g' + i + '.range_input')) break;
+      u.searchParams.set('g' + i + '.range_input', dur);
+      u.searchParams.delete('g' + i + '.end_input');
+      u.searchParams.delete('g' + i + '.moment_input');
     }
   } else {
-    const abs = resolveToAbsolute(time);
+    var abs = resolveToAbsolute(time);
     if (!abs) return url;
-    const dur = msToDuration(abs.to - abs.from);
-    const endStr = new Date(abs.to).toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
+    var absDur = msToDuration(abs.to - abs.from);
+    var endStr = new Date(abs.to).toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
 
-    for (let i = 0; i < 20; i++) {
-      if (!u.searchParams.has(`g${i}.expr`) && !u.searchParams.has(`g${i}.range_input`)) break;
-      u.searchParams.set(`g${i}.range_input`, dur);
-      u.searchParams.set(`g${i}.end_input`, endStr);
+    for (var j = 0; j < MAX_THANOS_PANELS; j++) {
+      if (!u.searchParams.has('g' + j + '.expr') && !u.searchParams.has('g' + j + '.range_input')) break;
+      u.searchParams.set('g' + j + '.range_input', absDur);
+      u.searchParams.set('g' + j + '.end_input', endStr);
     }
   }
 
@@ -294,7 +298,7 @@ function writeTime(tool, url, time) {
     if (tool === 'kibana') return writeKibana(url, time);
     if (tool === 'thanos') return writeThanos(url, time);
   } catch (e) {
-    console.warn('writeTime failed for', tool, e);
+    console.debug('writeTime failed:', tool, e);
   }
   return url;
 }
@@ -303,26 +307,30 @@ function writeTime(tool, url, time) {
 
 function formatTimeDisplay(time) {
   if (!time) return 'no time detected';
-  const from = isRelative(time.from) ? time.from : shortTimestamp(time.from);
-  const to = isRelative(time.to) ? time.to : shortTimestamp(time.to);
-  return `${from}  →  ${to}`;
+  var from = isRelative(time.from) ? time.from : shortTimestamp(time.from);
+  var to = isRelative(time.to) ? time.to : shortTimestamp(time.to);
+  return from + '  \u2192  ' + to;
 }
 
 function shortTimestamp(val) {
-  const ms = toEpochMs(val);
+  var ms = toEpochMs(val);
   if (isNaN(ms)) return String(val);
-  const d = new Date(ms);
-  return d.toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC');
+  return new Date(ms).toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC');
 }
 
 // ── Export for Node.js tests (no-op in browser) ─────────────────────────────
 
-if (typeof module !== 'undefined' && module.exports) {
+if (typeof exports === 'object' && typeof module === 'object') {
   module.exports = {
-    detectTool, toolLabel, isRelative, stripRounding, safeURL,
-    durationToMs, msToDuration, relativeToMs, toEpochMs, resolveToAbsolute,
-    parseGrafana, parseKibana, parseThanos, parseTime,
-    writeGrafana, writeKibana, writeThanos, writeTime,
-    formatTimeDisplay, shortTimestamp,
+    detectTool: detectTool, toolLabel: toolLabel,
+    isRelative: isRelative, stripRounding: stripRounding, safeURL: safeURL,
+    durationToMs: durationToMs, msToDuration: msToDuration,
+    relativeToMs: relativeToMs, toEpochMs: toEpochMs,
+    resolveToAbsolute: resolveToAbsolute,
+    parseGrafana: parseGrafana, parseKibana: parseKibana,
+    parseThanos: parseThanos, parseTime: parseTime,
+    writeGrafana: writeGrafana, writeKibana: writeKibana,
+    writeThanos: writeThanos, writeTime: writeTime,
+    formatTimeDisplay: formatTimeDisplay, shortTimestamp: shortTimestamp,
   };
 }

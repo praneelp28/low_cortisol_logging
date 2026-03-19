@@ -1,51 +1,93 @@
+"use strict";
+
 // popup.js — UI and chrome.tabs logic only. Pure logic lives in lib.js.
 
-function badge(tool) {
-  return `<span class="tool-badge ${tool}">${toolLabel(tool)}</span>`;
+function esc(s) {
+  var d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function renderSource(el, tool, time) {
+  if (tool && time) {
+    el.innerHTML =
+      '<span class="tool-badge ' + esc(tool) + '">' + esc(toolLabel(tool)) + '</span>' +
+      '<div class="time-range">' + esc(formatTimeDisplay(time)) + '</div>';
+  } else if (tool) {
+    el.innerHTML =
+      '<span class="tool-badge ' + esc(tool) + '">' + esc(toolLabel(tool)) + '</span>' +
+      '<div class="time-range muted">no time range in URL</div>';
+  } else {
+    el.textContent = 'not an obs tab';
+    el.classList.add('detecting');
+  }
+}
+
+function renderTarget(container, tab, tool, syncBtn, sourceTime) {
+  var row = document.createElement('div');
+  row.className = 'target-row';
+
+  var cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.checked = true;
+  cb.dataset.tabId = tab.id;
+  cb.dataset.tool = tool;
+
+  var check = document.createElement('div');
+  check.className = 'check on';
+
+  var badge = document.createElement('span');
+  badge.className = 'tool-badge ' + tool;
+  badge.textContent = toolLabel(tool);
+
+  var title = document.createElement('span');
+  title.className = 'tab-title';
+  title.textContent = tab.title || 'Untitled';
+  title.title = tab.title || 'Untitled';
+
+  row.appendChild(cb);
+  row.appendChild(check);
+  row.appendChild(badge);
+  row.appendChild(title);
+
+  row.addEventListener('click', function () {
+    cb.checked = !cb.checked;
+    check.className = cb.checked ? 'check on' : 'check';
+    row.className = cb.checked ? 'target-row' : 'target-row unchecked';
+    var anyChecked = container.querySelector('input[type="checkbox"]:checked');
+    syncBtn.disabled = !(sourceTime && anyChecked);
+  });
+
+  container.appendChild(row);
 }
 
 async function init() {
-  const sourceEl = document.getElementById('source-info');
-  const targetsList = document.getElementById('targets-list');
-  const noTargets = document.getElementById('no-targets');
-  const syncBtn = document.getElementById('sync-btn');
-  const statusEl = document.getElementById('status');
+  var sourceEl = document.getElementById('source-info');
+  var targetsList = document.getElementById('targets-list');
+  var noTargets = document.getElementById('no-targets');
+  var syncBtn = document.getElementById('sync-btn');
+  var statusEl = document.getElementById('status');
 
-  // Get active tab
-  let activeTab;
+  var activeTab;
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    activeTab = tab;
+    var tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    activeTab = tabs[0];
   } catch (e) {
-    sourceEl.innerHTML = '<span class="detecting">failed to read tab</span>';
+    sourceEl.textContent = 'failed to read active tab';
     return;
   }
 
   if (!activeTab) {
-    sourceEl.innerHTML = '<span class="detecting">no active tab</span>';
+    sourceEl.textContent = 'no active tab';
     return;
   }
 
-  const sourceTool = detectTool(activeTab.url);
-  const sourceTime = sourceTool ? parseTime(sourceTool, activeTab.url) : null;
+  var sourceTool = detectTool(activeTab.url);
+  var sourceTime = sourceTool ? parseTime(sourceTool, activeTab.url) : null;
 
-  // Render source
-  if (sourceTool && sourceTime) {
-    sourceEl.innerHTML = `
-      ${badge(sourceTool)}
-      <div class="time-range">${formatTimeDisplay(sourceTime)}</div>
-    `;
-  } else if (sourceTool) {
-    sourceEl.innerHTML = `
-      ${badge(sourceTool)}
-      <div class="time-range muted">no time range in URL</div>
-    `;
-  } else {
-    sourceEl.innerHTML = '<span class="detecting">not an obs tab</span>';
-  }
+  renderSource(sourceEl, sourceTool, sourceTime);
 
-  // Get all tabs, find targets
-  let allTabs = [];
+  var allTabs;
   try {
     allTabs = await chrome.tabs.query({});
   } catch (e) {
@@ -54,90 +96,64 @@ async function init() {
     return;
   }
 
-  const targets = [];
-  for (const tab of allTabs) {
-    if (tab.id === activeTab.id) continue;
-    const tool = detectTool(tab.url);
+  var targets = [];
+  for (var i = 0; i < allTabs.length; i++) {
+    if (allTabs[i].id === activeTab.id) continue;
+    var tool = detectTool(allTabs[i].url);
     if (!tool) continue;
-    targets.push({ tab, tool });
+    targets.push({ tab: allTabs[i], tool: tool });
   }
 
-  // Render targets as clickable bubbles
   if (targets.length === 0) {
-    noTargets.style.display = 'block';
+    noTargets.classList.add('visible');
   } else {
-    for (const { tab, tool } of targets) {
-      const row = document.createElement('div');
-      row.className = 'target-row';
-      const title = (tab.title || 'Untitled').replace(/"/g, '&quot;');
-      row.innerHTML = `
-        <input type="checkbox" checked data-tab-id="${tab.id}" data-tool="${tool}">
-        <div class="check on"></div>
-        ${badge(tool)}
-        <span class="tab-title" title="${title}">${title}</span>
-      `;
-
-      // Click anywhere on the row to toggle
-      row.addEventListener('click', () => {
-        const cb = row.querySelector('input[type="checkbox"]');
-        cb.checked = !cb.checked;
-        const check = row.querySelector('.check');
-        check.className = cb.checked ? 'check on' : 'check';
-        row.className = cb.checked ? 'target-row' : 'target-row unchecked';
-
-        // Update sync button state
-        const anyChecked = targetsList.querySelector('input[type="checkbox"]:checked');
-        syncBtn.disabled = !(sourceTime && anyChecked);
-      });
-
-      targetsList.appendChild(row);
+    for (var j = 0; j < targets.length; j++) {
+      renderTarget(targetsList, targets[j].tab, targets[j].tool, syncBtn, sourceTime);
     }
   }
 
-  // Enable sync only if we have source time + targets
   if (sourceTime && targets.length > 0) {
     syncBtn.disabled = false;
   }
 
-  // Sync handler
-  syncBtn.addEventListener('click', async () => {
+  syncBtn.addEventListener('click', async function () {
     syncBtn.disabled = true;
     syncBtn.textContent = 'syncing...';
     statusEl.textContent = '';
     statusEl.className = 'muted';
 
-    let synced = 0;
-    let errors = 0;
-    const checkboxes = targetsList.querySelectorAll('input[type="checkbox"]:checked');
+    var synced = 0;
+    var errors = 0;
+    var checkboxes = targetsList.querySelectorAll('input[type="checkbox"]:checked');
 
-    for (const cb of checkboxes) {
-      const tabId = parseInt(cb.dataset.tabId);
-      const tool = cb.dataset.tool;
+    for (var k = 0; k < checkboxes.length; k++) {
+      var tabId = parseInt(checkboxes[k].dataset.tabId, 10);
+      var tabTool = checkboxes[k].dataset.tool;
 
       try {
-        const tab = await chrome.tabs.get(tabId);
-        const newUrl = writeTime(tool, tab.url, sourceTime);
+        var tab = await chrome.tabs.get(tabId);
+        var newUrl = writeTime(tabTool, tab.url, sourceTime);
 
         if (newUrl && newUrl !== tab.url) {
           await chrome.tabs.update(tabId, { url: newUrl });
           synced++;
         }
       } catch (e) {
-        console.warn('Failed to sync tab', tabId, e);
+        console.debug('failed to sync tab', tabId, e);
         errors++;
       }
     }
 
     if (errors > 0) {
       statusEl.className = 'error';
-      statusEl.textContent = `synced ${synced}, failed ${errors} (tab closed?)`;
+      statusEl.textContent = 'synced ' + synced + ', failed ' + errors + ' (tab closed?)';
       syncBtn.textContent = 'retry';
       syncBtn.disabled = false;
     } else if (synced > 0) {
       statusEl.className = 'success';
-      statusEl.textContent = `synced ${synced} tab${synced > 1 ? 's' : ''}`;
+      statusEl.textContent = 'synced ' + synced + ' tab' + (synced > 1 ? 's' : '');
       syncBtn.textContent = 'done~';
-      setTimeout(() => window.close(), 1200);
+      setTimeout(function () { window.close(); }, 1200);
     } else {
       statusEl.className = 'muted';
       statusEl.textContent = 'times already match';

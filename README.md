@@ -13,3 +13,7 @@ tiny chrome extension that syncs your time range across Grafana, Kibana, and Tha
 - detects all other open Grafana / Kibana / Thanos tabs
 - rewrites their URLs to match — relative (`now-1h`) or absolute timestamps
 - no data leaves your browser, no content scripts, just URL rewrites
+
+### permissions
+- **tabs** — needed to scan all open tabs for observability tool URLs
+- **activeTab** — needed to read the active tab on click
