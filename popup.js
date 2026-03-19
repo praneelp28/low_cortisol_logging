@@ -118,6 +118,24 @@ async function init() {
     syncBtn.disabled = false;
   }
 
+  // Mode toggle: replace (default) vs open new
+  var mode = 'replace';
+  var modeReplace = document.getElementById('mode-replace');
+  var modeNew = document.getElementById('mode-new');
+
+  modeReplace.addEventListener('click', function () {
+    mode = 'replace';
+    modeReplace.classList.add('active');
+    modeNew.classList.remove('active');
+  });
+
+  modeNew.addEventListener('click', function () {
+    mode = 'new';
+    modeNew.classList.add('active');
+    modeReplace.classList.remove('active');
+  });
+
+  // Sync handler
   syncBtn.addEventListener('click', async function () {
     syncBtn.disabled = true;
     syncBtn.textContent = 'syncing...';
@@ -137,7 +155,11 @@ async function init() {
         var newUrl = writeTime(tabTool, tab.url, sourceTime);
 
         if (newUrl && newUrl !== tab.url) {
-          await chrome.tabs.update(tabId, { url: newUrl });
+          if (mode === 'new') {
+            await chrome.tabs.create({ url: newUrl, active: false });
+          } else {
+            await chrome.tabs.update(tabId, { url: newUrl });
+          }
           synced++;
         }
       } catch (e) {
@@ -146,14 +168,15 @@ async function init() {
       }
     }
 
+    var verb = mode === 'new' ? 'opened' : 'synced';
     if (errors > 0) {
       statusEl.className = 'error';
-      statusEl.textContent = 'synced ' + synced + ', failed ' + errors + ' (tab closed?)';
+      statusEl.textContent = verb + ' ' + synced + ', failed ' + errors + ' (tab closed?)';
       syncBtn.textContent = 'retry';
       syncBtn.disabled = false;
     } else if (synced > 0) {
       statusEl.className = 'success';
-      statusEl.textContent = 'synced ' + synced + ' tab' + (synced > 1 ? 's' : '');
+      statusEl.textContent = verb + ' ' + synced + ' tab' + (synced > 1 ? 's' : '');
       syncBtn.textContent = 'done~';
       setTimeout(function () { window.close(); }, 1200);
     } else {
