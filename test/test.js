@@ -119,12 +119,26 @@ describe('parseThanos', () => {
     assert.deepEqual(t, { from: 'now-1h', to: 'now' });
   });
 
+  it('parses relative week range', () => {
+    const url = 'https://metrics.cfdata.org/graph?g0.expr=up&g0.range_input=2w';
+    const t = lib.parseThanos(url);
+    assert.deepEqual(t, { from: 'now-2w', to: 'now' });
+  });
+
   it('parses absolute with end_input', () => {
     const url = 'https://metrics.cfdata.org/graph?g0.expr=up&g0.range_input=1h&g0.end_input=2024-01-15T11:00:00Z';
     const t = lib.parseThanos(url);
     const endMs = Date.parse('2024-01-15T11:00:00Z');
     assert.equal(t.to, String(endMs));
     assert.equal(t.from, String(endMs - 3600000));
+  });
+
+  it('parses absolute with week range_input', () => {
+    const url = 'https://metrics.cfdata.org/graph?g0.expr=up&g0.range_input=2w&g0.end_input=2024-01-15T11:00:00Z';
+    const t = lib.parseThanos(url);
+    const endMs = Date.parse('2024-01-15T11:00:00Z');
+    assert.equal(t.to, String(endMs));
+    assert.equal(t.from, String(endMs - 2 * 604800000));
   });
 
   it('returns null without range_input', () => {
@@ -154,8 +168,16 @@ describe('relativeToMs', () => {
   it('parses now as 0', () => assert.equal(lib.relativeToMs('now'), 0));
   it('parses now-1h', () => assert.equal(lib.relativeToMs('now-1h'), 3600000));
   it('parses now-7d', () => assert.equal(lib.relativeToMs('now-7d'), 604800000));
+  it('parses now-2w', () => assert.equal(lib.relativeToMs('now-2w'), 2 * 604800000));
+  it('parses now-1y', () => assert.equal(lib.relativeToMs('now-1y'), 31536000000));
+  it('parses now-6M (approx 180d)', () => assert.equal(lib.relativeToMs('now-6M'), 180 * 86400000));
   it('strips grafana rounding: now-1h/h', () => assert.equal(lib.relativeToMs('now-1h/h'), 3600000));
   it('returns null for gibberish', () => assert.equal(lib.relativeToMs('yesterday'), null));
+});
+
+describe('durationToMs extended units', () => {
+  it('parses weeks', () => assert.equal(lib.durationToMs('2w'), 2 * 604800000));
+  it('parses years', () => assert.equal(lib.durationToMs('1y'), 31536000000));
 });
 
 describe('stripRounding', () => {
@@ -233,6 +255,24 @@ describe('writeThanos', () => {
     const u = new URL(result);
     assert.equal(u.searchParams.get('g0.range_input'), '6h');
     assert.equal(u.searchParams.has('g0.end_input'), false);
+  });
+
+  it('preserves week unit (now-2w stays 2w, not 14d)', () => {
+    const result = lib.writeThanos(REAL_THANOS, { from: 'now-2w', to: 'now' });
+    const u = new URL(result);
+    assert.equal(u.searchParams.get('g0.range_input'), '2w');
+  });
+
+  it('preserves year unit (now-1y stays 1y)', () => {
+    const result = lib.writeThanos(REAL_THANOS, { from: 'now-1y', to: 'now' });
+    const u = new URL(result);
+    assert.equal(u.searchParams.get('g0.range_input'), '1y');
+  });
+
+  it('converts months to days for Thanos (now-6M → 180d)', () => {
+    const result = lib.writeThanos(REAL_THANOS, { from: 'now-6M', to: 'now' });
+    const u = new URL(result);
+    assert.equal(u.searchParams.get('g0.range_input'), '180d');
   });
 
   it('preserves other g0 params', () => {
