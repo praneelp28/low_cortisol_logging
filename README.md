@@ -1,12 +1,18 @@
 # low_cortisol_logging
 don't get framemogged by UNIX
 
-tiny chrome extension that syncs your time range across Grafana, Kibana, and Thanos/Prometheus tabs in one click. no more copy-pasting timestamps during incidents.
+bookmarklet that syncs time ranges across Grafana, Kibana, and Thanos/Prometheus tabs. no more copy-pasting timestamps during incidents.
 
 ### install
-1. `chrome://extensions` → developer mode on → **Load unpacked** → pick this folder
-2. open some obs tabs
-3. click the extension icon → **sync time**
+1. open `index.html` in your browser
+2. drag the button to your bookmarks bar
+3. no extension, no install, nothing to approve
+
+### usage
+1. on any grafana/kibana/thanos tab, click the bookmark
+2. hit **copy time** — writes `from|to` to your clipboard
+3. switch to another obs tab, click the bookmark again
+4. paste into the input and hit **apply**
 
 ### how it works
 
@@ -16,21 +22,15 @@ each observability tool stores its time range in the URL differently:
 - **Kibana** buries `time:(from:...,to:...)` inside RISON-encoded state in the URL hash fragment
 - **Thanos/Prometheus** uses `g0.range_input=1h` (a lookback duration) plus an optional `g0.end_input`
 
-when you click sync, the extension reads the time from your active tab, converts it to each target tool's format, and rewrites their URLs via `chrome.tabs.update()`. the target tabs navigate to the new URL and reload with the synced time. no content scripts, no page injection — just URL surgery.
+clicking the bookmark injects a small overlay UI into the current page. it reads the time range from the URL, lets you copy it as a `from|to` string, and rewrites the URL when you apply a pasted time. all the logic lives inside the `javascript:` URI stored in the bookmark itself, so there's no server, no extension, no file on disk.
 
 relative times like `now-1h` pass through directly since all three tools understand them. absolute times get converted between epoch ms (Grafana), ISO 8601 (Kibana), and duration + end time (Thanos).
+
+applying tries to avoid a full reload where possible: Kibana swaps the hash fragment, Grafana tries its internal `locationService` first and falls back to `location.replace()`, Thanos does a full replace.
 
 ### files
 
 ```
-lib.js         — detection, parsing, conversion, writing (pure functions, no browser APIs)
-popup.js       — popup UI wiring + chrome.tabs calls
-popup.html     — popup markup
-popup.css      — popup styles
-manifest.json  — extension config
+index.html       drag-to-install page
+lib.js           detection, parsing, conversion (pure functions, no browser APIs)
 ```
-
-
-### permissions
-- **tabs** — scan all open tabs for obs tool URLs
-- **activeTab** — read the active tab on click
