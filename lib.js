@@ -11,7 +11,7 @@
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-var DURATION_UNITS = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
+var DURATION_UNITS = { s: 1000, m: 60000, h: 3600000, d: 86400000, w: 604800000, y: 31536000000 };
 var MAX_THANOS_PANELS = 20;
 
 // ── Detection ────────────────────────────────────────────────────────────────
@@ -60,7 +60,7 @@ function safeURL(url) {
 }
 
 function durationToMs(dur) {
-  var match = dur.match(/^(\d+)([smhd])$/);
+  var match = dur.match(/^(\d+)([smhdwy])$/);
   if (!match) return null;
   return parseInt(match[1], 10) * DURATION_UNITS[match[2]];
 }
@@ -76,7 +76,10 @@ function msToDuration(ms) {
 function relativeToMs(val) {
   var cleaned = stripRounding(val);
   if (cleaned === 'now') return 0;
-  var match = cleaned.match(/^now-(\d+)([smhd])$/);
+  // months (M) aren't in DURATION_UNITS — approximate as 30d each
+  var monthMatch = cleaned.match(/^now-(\d+)M$/);
+  if (monthMatch) return parseInt(monthMatch[1], 10) * 30 * DURATION_UNITS.d;
+  var match = cleaned.match(/^now-(\d+)([smhdwy])$/);
   if (!match) return null;
   return parseInt(match[1], 10) * DURATION_UNITS[match[2]];
 }
@@ -282,8 +285,15 @@ function writeThanos(url, time) {
   if (!hasPanels) return url;
 
   if (isRelative(time.from)) {
-    var offset = relativeToMs(time.from);
-    var dur = offset !== null ? msToDuration(offset) : '1h';
+    // extract duration directly from the relative string so units like 'w' and 'y'
+    // are preserved as-is (Thanos supports them natively). months (M) get approximated
+    // as 30d since Thanos has no month unit.
+    var cleaned = stripRounding(time.from);
+    var directMatch = cleaned.match(/^now-(\d+)([smhdwy])$/);
+    var monthMatch2 = cleaned.match(/^now-(\d+)M$/);
+    var dur = directMatch ? directMatch[1] + directMatch[2]
+            : monthMatch2 ? (parseInt(monthMatch2[1], 10) * 30) + 'd'
+            : '1h';
 
     for (var i = 0; i < MAX_THANOS_PANELS; i++) {
       if (!u.searchParams.has('g' + i + '.expr') && !u.searchParams.has('g' + i + '.range_input')) break;
