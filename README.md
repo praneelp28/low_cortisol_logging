@@ -4,7 +4,7 @@ don't get framemogged by UNIX
 bookmarklet that syncs time ranges across Grafana, Kibana, and Thanos/Prometheus tabs. no more copy-pasting timestamps during incidents.
 
 ### install
-1. open `index.html` in your browser
+1. open `bookmarklet.html` in your browser
 2. drag the button to your bookmarks bar
 3. no extension, no install, nothing to approve
 
